@@ -37,7 +37,7 @@ use std::os::fd::AsFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::path::PathBuf;
 use std::result;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::{ffi, thread};
 use tracer::trace_scoped;
 use versionize::{VersionMap, Versionize, VersionizeResult};
@@ -1449,11 +1449,16 @@ impl MemoryManager {
             let pages_per_thread = num_pages / num_threads;
             let remainder = num_pages % num_threads;
 
+            let barrier = Arc::new(Barrier::new(num_threads));
             thread::scope(|s| {
                 let r = &region;
                 for i in 0..num_threads {
+                    let barrier = Arc::clone(&barrier);
                     s.spawn(move || {
+                        // Wait until all threads have been spawned to avoid contention
+                        // over mmap_sem between thread stack allocation and page faulting.
                         info!("thread {} spawned", i);
+                        barrier.wait();
                         let pages = pages_per_thread + if i < remainder { 1 } else { 0 };
                         let offset =
                             page_size * ((i * pages_per_thread) + std::cmp::min(i, remainder));
