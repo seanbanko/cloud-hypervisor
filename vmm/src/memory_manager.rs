@@ -1430,6 +1430,48 @@ impl MemoryManager {
         )
         .map_err(Error::GuestMemory)?;
 
+        // Prefault the region if needed, in parallel.
+        if prefault {
+            let page_size =
+                Self::get_prefault_align_size(backing_file, hugepages, hugepage_size)? as usize;
+
+            if !is_aligned(size, page_size) {
+                warn!(
+                    "Prefaulting memory size {} misaligned with page size {}",
+                    size, page_size
+                );
+            }
+
+            let num_pages = size / page_size;
+
+            let num_threads = Self::get_prefault_num_threads(page_size, num_pages);
+
+            let pages_per_thread = num_pages / num_threads;
+            let remainder = num_pages % num_threads;
+
+            thread::scope(|s| {
+                let r = &region;
+                for i in 0..num_threads {
+                    s.spawn(move || {
+                        info!("thread {} spawned", i);
+                        let pages = pages_per_thread + if i < remainder { 1 } else { 0 };
+                        let offset =
+                            page_size * ((i * pages_per_thread) + std::cmp::min(i, remainder));
+                        // SAFETY: FFI call with correct arguments
+                        let ret = unsafe {
+                            let addr = r.as_ptr().add(offset);
+                            libc::madvise(addr as _, pages * page_size, libc::MADV_POPULATE_WRITE)
+                        };
+                        info!("thread {} done", i);
+                        if ret != 0 {
+                            let e = io::Error::last_os_error();
+                            warn!("Failed to prefault pages: {}", e);
+                        }
+                    });
+                }
+            });
+        }
+
         // Apply NUMA policy if needed.
         if let Some(node) = host_numa_node {
             let addr = region.deref().as_ptr();
@@ -1460,51 +1502,6 @@ impl MemoryManager {
             // nodemask.
             Self::mbind(addr, len, mode, nodemask, maxnode, flags)
                 .map_err(Error::ApplyNumaPolicy)?;
-        }
-
-        // Prefault the region if needed, in parallel.
-        if prefault {
-            let page_size =
-                Self::get_prefault_align_size(backing_file, hugepages, hugepage_size)? as usize;
-
-            if !is_aligned(size, page_size) {
-                warn!(
-                    "Prefaulting memory size {} misaligned with page size {}",
-                    size, page_size
-                );
-            }
-
-            let num_pages = size / page_size;
-
-            let num_threads = Self::get_prefault_num_threads(page_size, num_pages);
-
-            let pages_per_thread = num_pages / num_threads;
-            let remainder = num_pages % num_threads;
-
-            let barrier = Arc::new(Barrier::new(num_threads));
-            thread::scope(|s| {
-                let r = &region;
-                for i in 0..num_threads {
-                    let barrier = Arc::clone(&barrier);
-                    s.spawn(move || {
-                        // Wait until all threads have been spawned to avoid contention
-                        // over mmap_sem between thread stack allocation and page faulting.
-                        barrier.wait();
-                        let pages = pages_per_thread + if i < remainder { 1 } else { 0 };
-                        let offset =
-                            page_size * ((i * pages_per_thread) + std::cmp::min(i, remainder));
-                        // SAFETY: FFI call with correct arguments
-                        let ret = unsafe {
-                            let addr = r.as_ptr().add(offset);
-                            libc::madvise(addr as _, pages * page_size, libc::MADV_POPULATE_WRITE)
-                        };
-                        if ret != 0 {
-                            let e = io::Error::last_os_error();
-                            warn!("Failed to prefault pages: {}", e);
-                        }
-                    });
-                }
-            });
         }
 
         if region.file_offset().is_none() && thp {
