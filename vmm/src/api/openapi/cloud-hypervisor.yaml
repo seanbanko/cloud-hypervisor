@@ -884,6 +884,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VirtQueueAffinity"
+        logical_block_size:
+          type: integer
 
     NetConfig:
       type: object

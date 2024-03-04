@@ -2411,8 +2411,8 @@ impl DeviceManager {
                         .clone(),
                 )
                 .map_err(DeviceManagerError::Disk)?;
-            let image_type =
-                detect_image_type(&mut file).map_err(DeviceManagerError::DetectImageType)?;
+            let image_type = detect_image_type(&mut file, disk_cfg.logical_block_size)
+                .map_err(DeviceManagerError::DetectImageType)?;
 
             let image = match image_type {
                 ImageType::FixedVhd => {
@@ -2461,13 +2461,14 @@ impl DeviceManager {
                         Box::new(RawFileDiskAio::new(file)) as Box<dyn DiskFile>
                     } else {
                         info!("Using synchronous RAW disk file");
-                        Box::new(RawFileDiskSync::new(file)) as Box<dyn DiskFile>
+                        Box::new(RawFileDiskSync::new(file, disk_cfg.logical_block_size))
+                            as Box<dyn DiskFile>
                     }
                 }
                 ImageType::Qcow2 => {
                     info!("Using synchronous QCOW disk file");
                     Box::new(
-                        QcowDiskSync::new(file, disk_cfg.direct)
+                        QcowDiskSync::new(file, disk_cfg.direct, disk_cfg.logical_block_size)
                             .map_err(DeviceManagerError::CreateQcowDiskSync)?,
                     ) as Box<dyn DiskFile>
                 }

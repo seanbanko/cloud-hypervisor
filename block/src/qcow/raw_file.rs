@@ -23,6 +23,7 @@ pub struct RawFile {
     alignment: usize,
     position: u64,
     direct_io: bool,
+    logical_block_size: Option<u64>,
 }
 
 const BLK_ALIGNMENTS: [usize; 2] = [512, 4096];
@@ -50,7 +51,7 @@ fn is_valid_alignment(fd: RawFd, alignment: usize) -> bool {
 }
 
 impl RawFile {
-    pub fn new(file: File, direct_io: bool) -> Self {
+    pub fn new(file: File, direct_io: bool, logical_block_size: Option<u64>) -> Self {
         // Assume no alignment restrictions if we aren't using O_DIRECT.
         let mut alignment = 0;
         if direct_io {
@@ -66,6 +67,7 @@ impl RawFile {
             alignment,
             position: 0,
             direct_io,
+            logical_block_size,
         }
     }
 
@@ -105,6 +107,7 @@ impl RawFile {
             alignment: self.alignment,
             position: self.position,
             direct_io: self.direct_io,
+            logical_block_size: self.logical_block_size,
         })
     }
 
@@ -118,6 +121,10 @@ impl RawFile {
 
     pub fn is_direct(&self) -> bool {
         self.direct_io
+    }
+
+    pub fn logical_block_size(&self) -> Option<u64> {
+        self.logical_block_size
     }
 }
 
@@ -363,6 +370,7 @@ impl Clone for RawFile {
             alignment: self.alignment,
             position: self.position,
             direct_io: self.direct_io,
+            logical_block_size: self.logical_block_size,
         }
     }
 }

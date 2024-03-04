@@ -16,9 +16,13 @@ pub struct QcowDiskSync {
 }
 
 impl QcowDiskSync {
-    pub fn new(file: File, direct_io: bool) -> QcowResult<Self> {
+    pub fn new(file: File, direct_io: bool, logical_block_size: Option<u64>) -> QcowResult<Self> {
         Ok(QcowDiskSync {
-            qcow_file: Arc::new(Mutex::new(QcowFile::from(RawFile::new(file, direct_io))?)),
+            qcow_file: Arc::new(Mutex::new(QcowFile::from(RawFile::new(
+                file,
+                direct_io,
+                logical_block_size,
+            ))?)),
         })
     }
 }

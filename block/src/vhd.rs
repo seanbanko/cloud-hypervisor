@@ -32,7 +32,7 @@ impl VhdFooter {
         // Place the cursor in the last block of the file
         file.seek(SeekFrom::End(0 - (blocksize as i64)))?;
         // Read in the last block
-        let data = read_aligned_block_size(file)?;
+        let data = read_aligned_block_size(file, None)?;
 
         // We only care about the last sector
         let offset = blocksize - 512;

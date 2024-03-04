@@ -41,7 +41,7 @@ pub struct FixedVhdSync {
 impl FixedVhdSync {
     pub fn new(fd: RawFd, size: u64) -> std::io::Result<Self> {
         Ok(FixedVhdSync {
-            raw_file_sync: RawFileSync::new(fd),
+            raw_file_sync: RawFileSync::new(fd, None),
             size,
         })
     }

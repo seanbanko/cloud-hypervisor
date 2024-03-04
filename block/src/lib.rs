@@ -643,6 +643,24 @@ pub fn block_io_uring_is_supported() -> bool {
     }
 }
 
+pub fn new_aligned_iovec(
+    length: usize,
+    alignment: usize,
+) -> std::result::Result<libc::iovec, AsyncIoError> {
+    let layout = Layout::from_size_align(length as usize, alignment).unwrap();
+    // SAFETY: layout has non-zero size
+    let aligned_ptr = unsafe { alloc_zeroed(layout) };
+    if aligned_ptr.is_null() {
+        return Err(AsyncIoError::TemporaryBufferAllocation(
+            io::Error::last_os_error(),
+        ));
+    }
+    Ok(libc::iovec {
+        iov_base: aligned_ptr as *mut libc::c_void,
+        iov_len: length as libc::size_t,
+    })
+}
+
 pub trait AsyncAdaptor<F>
 where
     F: Read + Write + Seek,
@@ -750,8 +768,15 @@ const QCOW_MAGIC: u32 = 0x5146_49fb;
 const VHDX_SIGN: u64 = 0x656C_6966_7864_6876;
 
 /// Read a block into memory aligned by the source block size (needed for O_DIRECT)
-pub fn read_aligned_block_size(f: &mut File) -> std::io::Result<Vec<u8>> {
-    let blocksize = DiskTopology::probe(f)?.logical_block_size as usize;
+pub fn read_aligned_block_size(
+    f: &mut File,
+    logical_block_size: Option<u64>,
+) -> std::io::Result<Vec<u8>> {
+    let blocksize = match logical_block_size {
+        Some(logical_block_size) => logical_block_size as usize,
+        None => DiskTopology::probe(f)?.logical_block_size as usize,
+    };
+
     // SAFETY: We are allocating memory that is naturally aligned (size = alignment) and we meet
     // requirements for safety from Vec::from_raw_parts() as we are using the global allocator
     // and transferring ownership of the memory.
@@ -767,8 +792,11 @@ pub fn read_aligned_block_size(f: &mut File) -> std::io::Result<Vec<u8>> {
 }
 
 /// Determine image type through file parsing.
-pub fn detect_image_type(f: &mut File) -> std::io::Result<ImageType> {
-    let block = read_aligned_block_size(f)?;
+pub fn detect_image_type(
+    f: &mut File,
+    logical_block_size: Option<u64>,
+) -> std::io::Result<ImageType> {
+    let block = read_aligned_block_size(f, logical_block_size)?;
 
     // Check 4 first bytes to get the header value and determine the image type
     let image_type = if u32::from_be_bytes(block[0..4].try_into().unwrap()) == QCOW_MAGIC {
@@ -789,21 +817,28 @@ pub trait BlockBackend: Read + Write + Seek + Send + Debug {
 }
 
 /// Inspect the image file type and create an appropriate disk file to match it.
-pub fn create_disk_file(mut file: File, direct_io: bool) -> Result<Box<dyn BlockBackend>, Error> {
-    let image_type = detect_image_type(&mut file).map_err(Error::DetectImageType)?;
+pub fn create_disk_file(
+    mut file: File,
+    direct_io: bool,
+    logical_block_size: Option<u64>,
+) -> Result<Box<dyn BlockBackend>, Error> {
+    let image_type =
+        detect_image_type(&mut file, logical_block_size).map_err(Error::DetectImageType)?;
 
     Ok(match image_type {
-        ImageType::Qcow2 => {
-            Box::new(QcowFile::from(RawFile::new(file, direct_io)).map_err(Error::QcowError)?)
-                as Box<dyn BlockBackend>
-        }
+        ImageType::Qcow2 => Box::new(
+            QcowFile::from(RawFile::new(file, direct_io, logical_block_size))
+                .map_err(Error::QcowError)?,
+        ) as Box<dyn BlockBackend>,
         ImageType::FixedVhd => {
             Box::new(FixedVhd::new(file).map_err(Error::FixedVhdError)?) as Box<dyn BlockBackend>
         }
         ImageType::Vhdx => {
             Box::new(Vhdx::new(file).map_err(Error::VhdxError)?) as Box<dyn BlockBackend>
         }
-        ImageType::Raw => Box::new(RawFile::new(file, direct_io)) as Box<dyn BlockBackend>,
+        ImageType::Raw => {
+            Box::new(RawFile::new(file, direct_io, logical_block_size)) as Box<dyn BlockBackend>
+        }
     })
 }
 

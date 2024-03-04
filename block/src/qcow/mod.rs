@@ -482,8 +482,9 @@ impl QcowFile {
                 .read(true)
                 .open(path)
                 .map_err(Error::BackingFileIo)?;
-            let backing_file = crate::create_disk_file(backing_raw_file, direct_io)
-                .map_err(|e| Error::BackingFileOpen(Box::new(e)))?;
+            let backing_file =
+                crate::create_disk_file(backing_raw_file, direct_io, file.logical_block_size())
+                    .map_err(|e| Error::BackingFileOpen(Box::new(e)))?;
             Some(backing_file)
         } else {
             None
@@ -638,8 +639,9 @@ impl QcowFile {
             .read(true)
             .open(backing_file_name)
             .map_err(Error::BackingFileIo)?;
-        let backing_file = crate::create_disk_file(backing_raw_file, direct_io)
-            .map_err(|e| Error::BackingFileOpen(Box::new(e)))?;
+        let backing_file =
+            crate::create_disk_file(backing_raw_file, direct_io, file.logical_block_size())
+                .map_err(|e| Error::BackingFileOpen(Box::new(e)))?;
         let size = backing_file
             .size()
             .map_err(|e| Error::BackingFileOpen(Box::new(e)))?;
@@ -1891,7 +1893,8 @@ mod tests {
     }
 
     fn basic_file(header: &[u8]) -> RawFile {
-        let mut disk_file: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), false);
+        let mut disk_file: RawFile =
+            RawFile::new(TempFile::new().unwrap().into_file(), false, None);
         disk_file.write_all(header).unwrap();
         disk_file.set_len(0x1_0000_0000).unwrap();
         disk_file.rewind().unwrap();
@@ -1909,7 +1912,7 @@ mod tests {
     where
         F: FnMut(QcowFile),
     {
-        let tmp: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), direct);
+        let tmp: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), direct, None);
         let qcow_file = QcowFile::new(tmp, 3, file_size).unwrap();
 
         testfn(qcow_file); // File closed when the function exits.
@@ -1950,7 +1953,8 @@ mod tests {
     #[test]
     fn default_header_v2() {
         let header = QcowHeader::create_for_size_and_path(2, 0x10_0000, None);
-        let mut disk_file: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), false);
+        let mut disk_file: RawFile =
+            RawFile::new(TempFile::new().unwrap().into_file(), false, None);
         header
             .expect("Failed to create header.")
             .write_to(&mut disk_file)
@@ -1962,7 +1966,8 @@ mod tests {
     #[test]
     fn default_header_v3() {
         let header = QcowHeader::create_for_size_and_path(3, 0x10_0000, None);
-        let mut disk_file: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), false);
+        let mut disk_file: RawFile =
+            RawFile::new(TempFile::new().unwrap().into_file(), false, None);
         header
             .expect("Failed to create header.")
             .write_to(&mut disk_file)
@@ -1991,7 +1996,8 @@ mod tests {
     fn header_v2_with_backing() {
         let header = QcowHeader::create_for_size_and_path(2, 0x10_0000, Some("/my/path/to/a/file"))
             .expect("Failed to create header.");
-        let mut disk_file: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), false);
+        let mut disk_file: RawFile =
+            RawFile::new(TempFile::new().unwrap().into_file(), false, None);
         header
             .write_to(&mut disk_file)
             .expect("Failed to write header to shm.");
@@ -2008,7 +2014,8 @@ mod tests {
     fn header_v3_with_backing() {
         let header = QcowHeader::create_for_size_and_path(3, 0x10_0000, Some("/my/path/to/a/file"))
             .expect("Failed to create header.");
-        let mut disk_file: RawFile = RawFile::new(TempFile::new().unwrap().into_file(), false);
+        let mut disk_file: RawFile =
+            RawFile::new(TempFile::new().unwrap().into_file(), false, None);
         header
             .write_to(&mut disk_file)
             .expect("Failed to write header to shm.");

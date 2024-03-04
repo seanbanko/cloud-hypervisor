@@ -227,6 +227,8 @@ pub struct DiskConfig {
     pub serial: Option<String>,
     #[serde(default)]
     pub queue_affinity: Option<Vec<VirtQueueAffinity>>,
+    #[serde(default)]
+    pub logical_block_size: Option<u64>,
 }
 
 pub const DEFAULT_DISK_NUM_QUEUES: usize = 1;

@@ -37,6 +37,9 @@ pub enum AsyncIoError {
     /// Failed synchronizing file.
     #[error("Failed synchronizing file: {0}")]
     Fsync(#[source] std::io::Error),
+    /// Failed allocating a temporary buffer.
+    #[error("Failed allocating a temporary buffer: {0}")]
+    TemporaryBufferAllocation(std::io::Error),
 }
 
 pub type AsyncIoResult<T> = std::result::Result<T, AsyncIoError>;
